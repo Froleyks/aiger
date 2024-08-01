@@ -1,3 +1,7 @@
+## Version 1.10.0
+
+  - Added option fuzzing
+
 ## Version 1.9.19
 
   - Added '.xz' reading and writing support.
