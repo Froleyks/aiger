@@ -367,12 +367,18 @@ int main(int argc, char **argv) {
 
         extend = !!(block & -block & reversed);
         last = i + max(0, delta + extend - 1);
+        int sib_skip_zero =
+            (delta && ((!(block % 2) && (stable[i - 1] == 0)) ||
+                       ((block % 2) && (stable[last + 1] == 0))));
+        int sib_skip_one =
+            (delta && ((!(block % 2) && (stable[i - 1] == 1)) ||
+                       ((block % 2) && (stable[last + 1] == 1))));
         changed = 0;
         outof = last - i + 1;
         msg(2, "i: %d delta: %d last: %d, block: %d, ext: %d", i, delta, last,
             block, extend);
         assert(last == min(i + max(1, delta + extend) - 1, src->maxvar));
-        if (extend == shorter || (stable[j] == 0)) {
+        if (extend == shorter || (stable[j] == 0) || sib_skip_zero) {
           i = last + 1;
           continue;
         };
@@ -401,7 +407,7 @@ int main(int argc, char **argv) {
             copy_stable_to_unstable_and_write_dst_name();
           } else /* try setting to 'one' */
           {
-            if (stable[j] == 1) {
+            if (stable[j] == 1 || sib_skip_one) {
               i = last + 1;
               continue;
             };
@@ -555,8 +561,8 @@ int main(int argc, char **argv) {
   for (i = 1; i <= src->maxvar; i++)
     if (stable[i] <= 1) changed++;
 
-  msg(1, "%.1f%% literals removed (%d out of %d)",
-      src->maxvar ? changed * 100.0 / src->maxvar : 0, changed, src->maxvar);
+  msg(0, "%.1f%% literals removed (%d out of %d), runs: %d",
+      src->maxvar ? changed * 100.0 / src->maxvar : 0, changed, src->maxvar, runs);
 
   free(fairness);
   free(justice);
