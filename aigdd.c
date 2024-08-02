@@ -278,7 +278,7 @@ static int min(int a, int b) { return a < b ? a : b; }
 static int max(int a, int b) { return a > b ? a : b; }
 
 int main(int argc, char **argv) {
-  int i, changed, delta, j, expected, res, last, outof;
+  int i, changed, delta, reversed, extend, block, j, expected, res, last, outof;
   const char *src_name, *err;
   char *cmd;
 
@@ -328,6 +328,7 @@ int main(int argc, char **argv) {
   justice = malloc(src->num_justice + sizeof *justice);
   fairness = malloc(src->num_fairness + sizeof *fairness);
 
+  // TODO only mark those that actually are in the formula
   for (i = 0; i <= src->maxvar; i++)
     stable[i] = 2 * i;
   for (i = 0; i < src->num_outputs; i++)
@@ -354,92 +355,99 @@ int main(int argc, char **argv) {
 
   msg(1, "using temporary file '%s'", tmp_name);
 
-  int w = src->maxvar, r = 0, index = 0;
-  for (delta = src->maxvar; delta;
-       w >>= 1, delta = (delta == 1) ? 0 : (delta + 1) / 2) {
+  reversed = 0;
+  for (delta = src->maxvar;; delta >>= 1) {
     i = 1;
-    int k = 1;
-    do {
-      for (j = 1; j < i; j++)
-        unstable[j] = stable[j];
-
-      int extend = !!(k & -k & r);
-      changed = 0;
-      /* last = i + max(1, w + extend) - 1; */
-      last = min(i + max(1, w + extend) - 1, src->maxvar);
-      msg(2, "i: %d w: %d last: %d, k: %d, ext: %d", i, w, last, k, extend);
-      /* last = min(i + delta - 1, src->maxvar); */
-      /* msg(2, "old: %d nex: %d", last, */
-      /*     min(i + max(1, w + extend) - 1, src->maxvar)); */
-      outof = last - i + 1;
-      for (j = i; j <= last; j++) {
-        if (stable[j]) /* replace '1' by '0' as well */
-        {
-          unstable[j] = 0;
-          changed++;
-        } else
-          unstable[j] = 0; /* always favor 'zero' */
-      }
-
-      if (changed) {
-        for (j = last + 1; j <= src->maxvar; j++)
+    block = 1;
+    for (int shorter = 0; shorter < 2 - !delta; shorter++)
+      for (i = 1, block = 1; i <= src->maxvar; block++) {
+        // left reset
+        for (j = 1; j < i; j++)
           unstable[j] = stable[j];
 
-        res = write_and_run_unstable(cmd);
-        if (res == expected) {
-          msg(1, "[%d,%d] set to 0 (%d out of %d)", i, last, changed, outof);
+        extend = !!(block & -block & reversed);
+        last = i + max(0, delta + extend - 1);
+        changed = 0;
+        outof = last - i + 1;
+        msg(2, "i: %d delta: %d last: %d, block: %d, ext: %d", i, delta, last,
+            block, extend);
+        assert(last == min(i + max(1, delta + extend) - 1, src->maxvar));
+        if (extend == shorter) {
+          i = last + 1;
+          continue;
+        };
+        // center 0
+        for (j = i; j <= last; j++) {
+          if (stable[j]) /* replace '1' by '0' as well */
+          {
+            unstable[j] = 0;
+            changed++;
+          } else
+            unstable[j] = 0; /* always favor 'zero' */
+        }
 
-          for (j = i; j <= last; j++)
-            stable[j] = unstable[j];
-
-          copy_stable_to_unstable_and_write_dst_name();
-        } else /* try setting to 'one' */
-        {
-          msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", i, last, changed,
-              outof);
-
-          for (j = 1; j < i; j++)
+        if (changed) {
+          // right reset
+          for (j = last + 1; j <= src->maxvar; j++)
             unstable[j] = stable[j];
 
-          changed = 0;
-          for (j = i; j <= last; j++) {
-            if (stable[j]) {
-              if (stable[j] > 1) {
-                unstable[j] = 1;
-                changed++;
-              } else
-                unstable[j] = 1;
-            } else
-              unstable[j] = 0; /* always favor '0' */
-          }
+          res = write_and_run_unstable(cmd);
+          if (res == expected) {
+            msg(1, "[%d,%d] set to 0 (%d out of %d)", i, last, changed, outof);
 
-          if (changed) {
-            for (j = last + 1; j <= src->maxvar; j++)
+            for (j = i; j <= last; j++)
+              stable[j] = unstable[j];
+
+            copy_stable_to_unstable_and_write_dst_name();
+          } else /* try setting to 'one' */
+          {
+            msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", i, last,
+                changed, outof);
+
+            // center reset
+            for (j = 1; j < i; j++)
               unstable[j] = stable[j];
 
-            res = write_and_run_unstable(cmd);
-            if (res == expected) {
-              msg(1, "[%d,%d] set to 1 (%d out of %d)", i, last, changed,
-                  outof);
+            changed = 0;
+            // center 1
+            for (j = i; j <= last; j++) {
+              if (stable[j]) {
+                if (stable[j] > 1) {
+                  unstable[j] = 1;
+                  changed++;
+                } else
+                  unstable[j] = 1;
+              } else
+                unstable[j] = 0; /* always favor '0' */
+            }
 
-              for (j = i; j < last + 1; j++)
-                stable[j] = unstable[j];
+            if (changed) {
+              // rigt reset
+              for (j = last + 1; j <= src->maxvar; j++)
+                unstable[j] = stable[j];
 
-              copy_stable_to_unstable_and_write_dst_name();
-            } else
-              msg(3, "[%d,%d] can neither be set to 1 (%d out of %d)", i, last,
-                  changed, outof);
+              res = write_and_run_unstable(cmd);
+              if (res == expected) {
+                msg(1, "[%d,%d] set to 1 (%d out of %d)", i, last, changed,
+                    outof);
+
+                for (j = i; j < last + 1; j++)
+                  stable[j] = unstable[j];
+
+                copy_stable_to_unstable_and_write_dst_name();
+              } else
+                msg(3, "[%d,%d] can neither be set to 1 (%d out of %d)", i,
+                    last, changed, outof);
+            }
           }
-        }
-      } else
-        msg(3, "[%d,%d] stabilized to 0", i, last);
+        } else
+          msg(3, "[%d,%d] stabilized to 0", i, last);
 
-      i = last + 1;
-      k++;
-    } while (i <= src->maxvar);
+        i = last + 1;
+      };
 
-    if (w > 1) r = (r << 1) | (w & 1u);
-    if (!w) break;
+    if (delta > 1) reversed = (reversed << 1) | (delta & 1u);
+    if (!delta) break;
   }
 
   copy_stable_to_unstable_and_write_dst_name();
