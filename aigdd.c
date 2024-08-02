@@ -255,7 +255,6 @@ static int run(const char *cmd, const char *name) {
   fullcmd = strapp(fullcmd, name);
   fullcmd = strapp(fullcmd, CMDSUFFIX);
   runs++;
-  msg(3, "full command '%s'", fullcmd);
   res = system(fullcmd);
   free(fullcmd);
   return WEXITSTATUS(res);
@@ -266,7 +265,17 @@ static int write_and_run_unstable(const char *cmd) {
   return run(cmd, tmp_name);
 }
 
+static int write_and_run_unstable_i(const char *cmd, int i) {
+  msg(2, "writing and running unstable %d", i);
+  sprintf(tmp_name, "/tmp/aigdd%d.aig", i);
+  write_unstable(tmp_name);
+  int res = run(cmd, tmp_name);
+  msg(2, "unstable %d returns %d", i, res);
+  return res;
+}
+
 static int min(int a, int b) { return a < b ? a : b; }
+static int max(int a, int b) { return a > b ? a : b; }
 
 int main(int argc, char **argv) {
   int i, changed, delta, j, expected, res, last, outof;
@@ -345,15 +354,23 @@ int main(int argc, char **argv) {
 
   msg(1, "using temporary file '%s'", tmp_name);
 
-  for (delta = src->maxvar; delta; delta = (delta == 1) ? 0 : (delta + 1) / 2) {
+  int w = src->maxvar, r = 0, index = 0;
+  for (delta = src->maxvar; delta;
+       w >>= 1, delta = (delta == 1) ? 0 : (delta + 1) / 2) {
     i = 1;
-
+    int k = 1;
     do {
       for (j = 1; j < i; j++)
         unstable[j] = stable[j];
 
+      int extend = !!(k & -k & r);
       changed = 0;
-      last = min(i + delta - 1, src->maxvar);
+      /* last = i + max(1, w + extend) - 1; */
+      last = min(i + max(1, w + extend) - 1, src->maxvar);
+      msg(2, "i: %d w: %d last: %d, k: %d, ext: %d", i, w, last, k, extend);
+      /* last = min(i + delta - 1, src->maxvar); */
+      /* msg(2, "old: %d nex: %d", last, */
+      /*     min(i + max(1, w + extend) - 1, src->maxvar)); */
       outof = last - i + 1;
       for (j = i; j <= last; j++) {
         if (stable[j]) /* replace '1' by '0' as well */
@@ -365,7 +382,7 @@ int main(int argc, char **argv) {
       }
 
       if (changed) {
-        for (j = i + delta; j <= src->maxvar; j++)
+        for (j = last + 1; j <= src->maxvar; j++)
           unstable[j] = stable[j];
 
         res = write_and_run_unstable(cmd);
@@ -397,7 +414,7 @@ int main(int argc, char **argv) {
           }
 
           if (changed) {
-            for (j = i + delta; j <= src->maxvar; j++)
+            for (j = last + 1; j <= src->maxvar; j++)
               unstable[j] = stable[j];
 
             res = write_and_run_unstable(cmd);
@@ -405,7 +422,7 @@ int main(int argc, char **argv) {
               msg(1, "[%d,%d] set to 1 (%d out of %d)", i, last, changed,
                   outof);
 
-              for (j = i; j < i + delta && j <= src->maxvar; j++)
+              for (j = i; j < last + 1; j++)
                 stable[j] = unstable[j];
 
               copy_stable_to_unstable_and_write_dst_name();
@@ -417,8 +434,12 @@ int main(int argc, char **argv) {
       } else
         msg(3, "[%d,%d] stabilized to 0", i, last);
 
-      i += delta;
+      i = last + 1;
+      k++;
     } while (i <= src->maxvar);
+
+    if (w > 1) r = (r << 1) | (w & 1u);
+    if (!w) break;
   }
 
   copy_stable_to_unstable_and_write_dst_name();
