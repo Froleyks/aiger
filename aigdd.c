@@ -76,6 +76,7 @@ static char tmp_name[80];
 static unsigned *unstable;
 static unsigned *stable;
 static char *fixed;
+static char *eliminated;
 static char *outputs;
 static char *bad;
 static char *constraints;
@@ -322,6 +323,7 @@ int main(int argc, char **argv) {
   stable = malloc(sizeof(stable[0]) * (src->maxvar + 1));
   unstable = malloc(sizeof(unstable[0]) * (src->maxvar + 1));
   fixed = malloc(src->maxvar + 1);
+  eliminated = malloc(src->maxvar + 1);
 
   outputs = malloc(src->num_outputs + sizeof *outputs);
   bad = malloc(src->num_bad + sizeof *bad);
@@ -342,6 +344,7 @@ int main(int argc, char **argv) {
     justice[i] = 1;
   for (i = 0; i < src->num_fairness; i++)
     fairness[i] = 1;
+  memset(eliminated, 0, src->maxvar + 1);
 
   copy_stable_to_unstable_and_write_dst_name();
 
@@ -369,13 +372,13 @@ int main(int argc, char **argv) {
         extend = !!(block & -block & reversed);
         last = i + max(0, delta + extend - 1);
         int sib_skip_zero =
-            (delta && ((!(block % 2) && (stable[i - 1] == 0)) ||
-                       ((block % 2) && (stable[last + 1] == 0)))) ||
-            (skip && (stable[i - 1] == 0));
+            (delta && ((!(block % 2) && (eliminated[i - 1] == 2)) ||
+                       ((block % 2) && (eliminated[last + 1] == 2)))) ||
+            (skip && (eliminated[i - 1] == 1));
         int sib_skip_one =
-            (delta && ((!(block % 2) && (stable[i - 1] == 1)) ||
-                       ((block % 2) && (stable[last + 1] == 1)))) ||
-            (skip && (stable[i - 1] == 1));
+            (delta && ((!(block % 2) && (eliminated[i - 1] == 1)) ||
+                       ((block % 2) && (eliminated[last + 1] == 1)))) ||
+            (skip && (eliminated[i - 1] == 1));
         /* sib_skip_one = 0; */
         /* sib_skip_zero = 0; */
         changed = 0;
@@ -383,7 +386,7 @@ int main(int argc, char **argv) {
         msg(2, "i: %d delta: %d last: %d, block: %d, ext: %d", i, delta, last,
             block, extend);
         assert(last == min(i + max(1, delta + extend) - 1, src->maxvar));
-        if (extend == shorter || (stable[j] == 0) || sib_skip_zero) {
+        if (extend == shorter || (eliminated[i] == 2) || sib_skip_zero) {
           i = last + 1;
           continue;
         };
@@ -406,13 +409,15 @@ int main(int argc, char **argv) {
           if (res == expected) {
             msg(1, "[%d,%d] set to 0 (%d out of %d)", i, last, changed, outof);
 
-            for (j = i; j <= last; j++)
+            for (j = i; j <= last; j++) {
               stable[j] = unstable[j];
+              eliminated[j] = 2;
+            }
 
             copy_stable_to_unstable_and_write_dst_name();
           } else /* try setting to 'one' */
           {
-            if (stable[j] == 1 || sib_skip_one) {
+            if (eliminated[i] == 1 || sib_skip_one) {
               i = last + 1;
               continue;
             };
@@ -446,8 +451,10 @@ int main(int argc, char **argv) {
                 msg(1, "[%d,%d] set to 1 (%d out of %d)", i, last, changed,
                     outof);
 
-                for (j = i; j < last + 1; j++)
+                for (j = i; j < last + 1; j++) {
                   stable[j] = unstable[j];
+                  eliminated[j] = 1;
+                }
 
                 copy_stable_to_unstable_and_write_dst_name();
               } else
@@ -565,8 +572,14 @@ int main(int argc, char **argv) {
   }
 
   changed = 0;
-  for (i = 1; i <= src->maxvar; i++)
-    if (stable[i] <= 1) changed++;
+  for (i = 1; i <= src->maxvar; i++) {
+    assert(!eliminated[i] || (stable[i] <= 1));
+    assert(eliminated[i] || !(stable[i] <= 1));
+    if (stable[i] <= 1) {
+      changed++;
+      assert(eliminated[i]);
+    }
+  }
 
   msg(0, "%.1f%% literals removed (%d out of %d), runs: %d",
       src->maxvar ? changed * 100.0 / src->maxvar : 0, changed, src->maxvar,
@@ -579,6 +592,7 @@ int main(int argc, char **argv) {
   free(stable);
   free(unstable);
   free(fixed);
+  free(eliminated);
   free(cmd);
   aiger_reset(src);
   unlink(tmp_name);
