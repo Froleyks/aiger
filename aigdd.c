@@ -278,7 +278,8 @@ static int min(int a, int b) { return a < b ? a : b; }
 static int max(int a, int b) { return a > b ? a : b; }
 
 int main(int argc, char **argv) {
-  int i, changed, delta, reversed, extend, block, j, expected, res, last, outof;
+  int i, changed, delta, reversed, extend, block, skip, j, expected, res, last,
+      outof;
   const char *src_name, *err;
   char *cmd;
 
@@ -369,10 +370,14 @@ int main(int argc, char **argv) {
         last = i + max(0, delta + extend - 1);
         int sib_skip_zero =
             (delta && ((!(block % 2) && (stable[i - 1] == 0)) ||
-                       ((block % 2) && (stable[last + 1] == 0))));
+                       ((block % 2) && (stable[last + 1] == 0)))) ||
+            (skip && (stable[i - 1] == 0));
         int sib_skip_one =
             (delta && ((!(block % 2) && (stable[i - 1] == 1)) ||
-                       ((block % 2) && (stable[last + 1] == 1))));
+                       ((block % 2) && (stable[last + 1] == 1)))) ||
+            (skip && (stable[i - 1] == 1));
+        /* sib_skip_one = 0; */
+        /* sib_skip_zero = 0; */
         changed = 0;
         outof = last - i + 1;
         msg(2, "i: %d delta: %d last: %d, block: %d, ext: %d", i, delta, last,
@@ -454,6 +459,8 @@ int main(int argc, char **argv) {
           msg(3, "[%d,%d] stabilized to 0", i, last);
 
         i = last + 1;
+        skip = !delta && extend && !skip;
+        block -= skip;
       };
 
     if (delta > 1) reversed = (reversed << 1) | (delta & 1u);
@@ -562,7 +569,8 @@ int main(int argc, char **argv) {
     if (stable[i] <= 1) changed++;
 
   msg(0, "%.1f%% literals removed (%d out of %d), runs: %d",
-      src->maxvar ? changed * 100.0 / src->maxvar : 0, changed, src->maxvar, runs);
+      src->maxvar ? changed * 100.0 / src->maxvar : 0, changed, src->maxvar,
+      runs);
 
   free(fairness);
   free(justice);
