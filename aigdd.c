@@ -372,7 +372,7 @@ int main(int argc, char **argv) {
         msg(2, "i: %d delta: %d last: %d, block: %d, ext: %d", i, delta, last,
             block, extend);
         assert(last == min(i + max(1, delta + extend) - 1, src->maxvar));
-        if (extend == shorter) {
+        if (extend == shorter || (stable[j] == 0)) {
           i = last + 1;
           continue;
         };
@@ -401,6 +401,10 @@ int main(int argc, char **argv) {
             copy_stable_to_unstable_and_write_dst_name();
           } else /* try setting to 'one' */
           {
+            if (stable[j] == 1) {
+              i = last + 1;
+              continue;
+            };
             msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", i, last,
                 changed, outof);
 
