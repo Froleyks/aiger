@@ -12,4 +12,4 @@ printf "\nold\n"
 time ../olddd -r $c old.aag $x
 o=$(wc -l old.aag | awk '{print $1}')
 echo "old: $o new: $n"
-exit $(($n - $o))
+exit $(($n != $o))

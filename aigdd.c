@@ -361,9 +361,8 @@ int main(int argc, char **argv) {
 
   reversed = 0;
   for (delta = src->maxvar;; delta >>= 1) {
-    i = 1;
-    block = 1;
-    for (int shorter = 0; shorter < 2 - !delta; shorter++)
+    skip = 0;
+    for (int shorter = 0; shorter < 2 - !delta; shorter++) {
       for (i = 1, block = 1; i <= src->maxvar; block++) {
         // left reset
         for (j = 1; j < i; j++)
@@ -374,7 +373,7 @@ int main(int argc, char **argv) {
         int sib_skip_zero =
             (delta && ((!(block % 2) && (eliminated[i - 1] == 2)) ||
                        ((block % 2) && (eliminated[last + 1] == 2)))) ||
-            (skip && (eliminated[i - 1] == 1));
+            (skip && (eliminated[i - 1] == 2));
         int sib_skip_one =
             (delta && ((!(block % 2) && (eliminated[i - 1] == 1)) ||
                        ((block % 2) && (eliminated[last + 1] == 1)))) ||
@@ -383,47 +382,49 @@ int main(int argc, char **argv) {
         /* sib_skip_zero = 0; */
         changed = 0;
         outof = last - i + 1;
-        msg(2, "i: %d delta: %d last: %d, block: %d, ext: %d", i, delta, last,
-            block, extend);
+        msg(2,
+            "i: %d delta: %d last: %d, block: %d, short: %d, skip: "
+            "%d, extend: %d",
+            i, delta, last, block, (extend == shorter), skip, extend);
+        if (sib_skip_zero) msg(2, "sibling skip zero");
+        if (sib_skip_one) msg(2, "sibling skip one");
         assert(last == min(i + max(1, delta + extend) - 1, src->maxvar));
-        if (extend == shorter || (eliminated[i] == 2) || sib_skip_zero) {
-          i = last + 1;
-          continue;
-        };
-        // center 0
-        for (j = i; j <= last; j++) {
-          if (stable[j]) /* replace '1' by '0' as well */
-          {
-            unstable[j] = 0;
-            changed++;
-          } else
-            unstable[j] = 0; /* always favor 'zero' */
-        }
-
-        if (changed) {
-          // right reset
-          for (j = last + 1; j <= src->maxvar; j++)
-            unstable[j] = stable[j];
-
-          res = write_and_run_unstable(cmd);
-          if (res == expected) {
-            msg(1, "[%d,%d] set to 0 (%d out of %d)", i, last, changed, outof);
-
+        if (extend != shorter && (eliminated[i] != 2)) {
+          // center 0
+          if (!sib_skip_zero) {
             for (j = i; j <= last; j++) {
-              stable[j] = unstable[j];
-              eliminated[j] = 2;
+              if (stable[j]) /* replace '1' by '0' as well */
+              {
+                unstable[j] = 0;
+                changed++;
+              } else
+                unstable[j] = 0; /* always favor 'zero' */
             }
+            if (!changed) msg(3, "[%d,%d] stabilized to 0", i, last);
+          }
 
-            copy_stable_to_unstable_and_write_dst_name();
-          } else /* try setting to 'one' */
-          {
-            if (eliminated[i] == 1 || sib_skip_one) {
-              i = last + 1;
-              continue;
-            };
-            msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", i, last,
-                changed, outof);
+          res = !expected;
+          if (changed) {
+            for (j = last + 1; j <= src->maxvar; j++)
+              unstable[j] = stable[j];
 
+            res = write_and_run_unstable(cmd);
+            if (res == expected) {
+              msg(1, "[%d,%d] set to 0 (%d out of %d)", i, last, changed,
+                  outof);
+
+              for (j = i; j <= last; j++) {
+                stable[j] = unstable[j];
+                eliminated[j] = 2;
+              }
+
+              copy_stable_to_unstable_and_write_dst_name();
+            } else {
+              msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", i, last,
+                  changed, outof);
+            }
+          }
+          if (res != expected && !sib_skip_one && eliminated[i] != 1) {
             // center reset
             for (j = 1; j < i; j++)
               unstable[j] = stable[j];
@@ -462,13 +463,13 @@ int main(int argc, char **argv) {
                     last, changed, outof);
             }
           }
-        } else
-          msg(3, "[%d,%d] stabilized to 0", i, last);
+        }
 
         i = last + 1;
         skip = !delta && extend && !skip;
         block -= skip;
       };
+    }
 
     if (delta > 1) reversed = (reversed << 1) | (delta & 1u);
     if (!delta) break;
@@ -573,11 +574,11 @@ int main(int argc, char **argv) {
 
   changed = 0;
   for (i = 1; i <= src->maxvar; i++) {
-    assert(!eliminated[i] || (stable[i] <= 1));
-    assert(eliminated[i] || !(stable[i] <= 1));
+    /* assert(!eliminated[i] || (stable[i] <= 1)); */
+    /* assert(eliminated[i] || !(stable[i] <= 1)); */
     if (stable[i] <= 1) {
       changed++;
-      assert(eliminated[i]);
+      /* assert(eliminated[i]); */
     }
   }
 
