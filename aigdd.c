@@ -370,16 +370,22 @@ int main(int argc, char **argv) {
 
         extend = !!(block & -block & reversed);
         last = i + max(0, delta + extend - 1);
+
         int sib_skip_zero =
-            (delta && ((!(block % 2) && (eliminated[i - 1] == 2)) ||
-                       ((block % 2) && (eliminated[last + 1] == 2)))) ||
+            (delta && (((block % 2) && (eliminated[last + 1] == 2)) ||
+                       (!(block % 2) && (eliminated[i - 1] == 2)))) ||
             (skip && (eliminated[i - 1] == 2));
         int sib_skip_one =
-            (delta && ((!(block % 2) && (eliminated[i - 1] == 1)) ||
-                       ((block % 2) && (eliminated[last + 1] == 1)))) ||
+            (delta && (((block % 2) && (eliminated[last + 1] == 1)) ||
+                       (!(block % 2) && (eliminated[i - 1] == 1)))) ||
             (skip && (eliminated[i - 1] == 1));
-        /* sib_skip_one = 0; */
-        /* sib_skip_zero = 0; */
+
+        if (delta < 2) {
+          // Under the assumtion of monotonicity this is not necessary
+          sib_skip_zero = 0;
+          sib_skip_one = 0;
+        }
+
         changed = 0;
         outof = last - i + 1;
         msg(2,
@@ -474,6 +480,7 @@ int main(int argc, char **argv) {
     if (delta > 1) reversed = (reversed << 1) | (delta & 1u);
     if (!delta) break;
   }
+  /* stable[15] = 0; */
 
   copy_stable_to_unstable_and_write_dst_name();
 
