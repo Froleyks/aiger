@@ -275,12 +275,9 @@ static int write_and_run_unstable_i(const char *cmd, int i) {
   return res;
 }
 
-static int min(int a, int b) { return a < b ? a : b; }
-static int max(int a, int b) { return a > b ? a : b; }
-
 int main(int argc, char **argv) {
-  int i, changed, delta, reversed, extend, split, block, beg, end, skip, j,
-      expected, res, last, outof;
+  int i, changed, delta, reversed, extend, split, block, beg, end, expected,
+      res, outof;
   const char *src_name, *err;
   char *cmd;
 
@@ -362,7 +359,6 @@ int main(int argc, char **argv) {
   int n = src->maxvar + 1;
   for (delta = n, reversed = 0;;
        reversed = (reversed << 1) | (delta & 1), delta >>= 1) {
-    i = 1;
     for (int shorter = 0; shorter < 2 - !delta; shorter++) {
       for (block = 0, beg = 0, end = 0; beg < n; block++, beg = end) {
         for (i = 1; i < beg; i++)
@@ -403,7 +399,7 @@ int main(int argc, char **argv) {
                 changed, outof);
             for (i = 1; i < beg; i++)
               unstable[i] = stable[i];
-            if (eliminated[beg] ||
+            if (eliminated[beg] == 1 ||
                 (block % 2 == 1 && eliminated[beg - 1] == 1) ||
                 (block % 2 == 0 && delta < n && eliminated[end] == 1))
               continue;
