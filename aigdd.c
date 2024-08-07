@@ -203,7 +203,7 @@ static void write_unstable(const char *name) {
     symbol = src->justice + i;
     lits = malloc(symbol->size * sizeof *lits);
     for (j = 0; j < symbol->size; j++)
-      lits[j] = deref(symbol->lit);
+      lits[j] = deref(symbol->lits[j]);
     aiger_add_justice(dst, symbol->size, lits, symbol->name);
     free(lits);
   }
