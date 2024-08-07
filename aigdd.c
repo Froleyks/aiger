@@ -279,8 +279,8 @@ static int min(int a, int b) { return a < b ? a : b; }
 static int max(int a, int b) { return a > b ? a : b; }
 
 int main(int argc, char **argv) {
-  int i, changed, delta, reversed, extend, block, skip, j, expected, res, last,
-      outof;
+  int i, changed, delta, reversed, extend, split, block, beg, end, skip, j,
+      expected, res, last, outof;
   const char *src_name, *err;
   char *cmd;
 
@@ -359,128 +359,88 @@ int main(int argc, char **argv) {
 
   msg(1, "using temporary file '%s'", tmp_name);
 
-  reversed = 0;
-  for (delta = src->maxvar;; delta >>= 1) {
-    skip = 0;
+  int n = src->maxvar + 1;
+  for (delta = n, reversed = 0;;
+       reversed = (reversed << 1) | (delta & 1), delta >>= 1) {
+    i = 1;
     for (int shorter = 0; shorter < 2 - !delta; shorter++) {
-      for (i = 1, block = 1; i <= src->maxvar; block++) {
-        // left reset
-        for (j = 1; j < i; j++)
-          unstable[j] = stable[j];
-
+      for (block = 0, beg = 0, end = 0; beg < n; block++, beg = end) {
+        for (i = 1; i < beg; i++)
+          unstable[i] = stable[i];
         extend = !!(block & -block & reversed);
-        last = i + max(0, delta + extend - 1);
-
-        int sib_skip_zero =
-            (delta && (((block % 2) && (eliminated[last + 1] == 2)) ||
-                       (!(block % 2) && (eliminated[i - 1] == 2)))) ||
-            (skip && (eliminated[i - 1] == 2));
-        int sib_skip_one =
-            (delta && (((block % 2) && (eliminated[last + 1] == 1)) ||
-                       (!(block % 2) && (eliminated[i - 1] == 1)))) ||
-            (skip && (eliminated[i - 1] == 1));
-
-        if (delta < 2) {
-          // Under the assumtion of monotonicity this is not necessary
-          sib_skip_zero = 0;
-          sib_skip_one = 0;
-        }
-
+        split = !(delta | extend);
+        block += split;
+        end = beg + delta + extend + split;
+        msg(2, "block %d, beg %d, end %d, n %d", block, beg, end, n);
+        if (extend == shorter || eliminated[beg] == 2 ||
+            (block % 2 == 1 && eliminated[beg - 1] == 2) ||
+            (block % 2 == 0 && delta < n && eliminated[end] == 2))
+          continue;
         changed = 0;
-        outof = last - i + 1;
-        msg(2,
-            "i: %d delta: %d last: %d, block: %d, short: %d, skip: "
-            "%d, extend: %d",
-            i, delta, last, block, (extend == shorter), skip, extend);
-        if (sib_skip_zero) msg(2, "sibling skip zero");
-        if (sib_skip_one) msg(2, "sibling skip one");
-        assert(last == min(i + max(1, delta + extend) - 1, src->maxvar));
-        if (extend != shorter && (eliminated[i] != 2)) {
-          // center 0
-          if (!sib_skip_zero) {
-            for (j = i; j <= last; j++) {
-              if (stable[j]) /* replace '1' by '0' as well */
-              {
-                unstable[j] = 0;
-                changed++;
-              } else
-                unstable[j] = 0; /* always favor 'zero' */
+        outof = end - beg;
+        for (i = beg; i < end; i++) {
+          if (stable[i]) /* replace '1' by '0' as well */ {
+            unstable[i] = 0;
+            changed++;
+          } else
+            unstable[i] = 0; /* always favor 'zero' */
+        }
+        if (changed) {
+          for (i = end; i < n; i++)
+            unstable[i] = stable[i];
+          res = write_and_run_unstable(cmd);
+          if (res == expected) {
+            msg(1, "[%d,%d] set to 0 (%d out of %d)", beg, end - 1, changed,
+                outof);
+            for (i = beg; i < end; i++) {
+              stable[i] = unstable[i];
+              eliminated[i] = 2;
             }
-            if (!changed) msg(3, "[%d,%d] stabilized to 0", i, last);
-          }
-
-          res = !expected;
-          if (changed) {
-            for (j = last + 1; j <= src->maxvar; j++)
-              unstable[j] = stable[j];
-
-            res = write_and_run_unstable(cmd);
-            if (res == expected) {
-              msg(1, "[%d,%d] set to 0 (%d out of %d)", i, last, changed,
-                  outof);
-
-              for (j = i; j <= last; j++) {
-                stable[j] = unstable[j];
-                eliminated[j] = 2;
-              }
-
-              copy_stable_to_unstable_and_write_dst_name();
-            } else {
-              msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", i, last,
-                  changed, outof);
-            }
-          }
-          if (res != expected && !sib_skip_one && eliminated[i] != 1) {
-            // center reset
-            for (j = 1; j < i; j++)
-              unstable[j] = stable[j];
-
+            copy_stable_to_unstable_and_write_dst_name();
+          } else /* try setting to 'one' */
+          {
+            msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", beg, end - 1,
+                changed, outof);
+            for (i = 1; i < beg; i++)
+              unstable[i] = stable[i];
+            if (eliminated[beg] ||
+                (block % 2 == 1 && eliminated[beg - 1] == 1) ||
+                (block % 2 == 0 && delta < n && eliminated[end] == 1))
+              continue;
             changed = 0;
-            // center 1
-            for (j = i; j <= last; j++) {
-              if (stable[j]) {
-                if (stable[j] > 1) {
-                  unstable[j] = 1;
+            for (i = beg; i < end; i++) {
+              if (stable[i]) {
+                if (stable[i] > 1) {
+                  unstable[i] = 1;
                   changed++;
                 } else
-                  unstable[j] = 1;
+                  unstable[i] = 1;
               } else
-                unstable[j] = 0; /* always favor '0' */
+                unstable[i] = 0; /* always favor '0' */
             }
-
             if (changed) {
-              // rigt reset
-              for (j = last + 1; j <= src->maxvar; j++)
-                unstable[j] = stable[j];
-
+              for (i = end; i < n; i++)
+                unstable[i] = stable[i];
               res = write_and_run_unstable(cmd);
               if (res == expected) {
-                msg(1, "[%d,%d] set to 1 (%d out of %d)", i, last, changed,
+                msg(1, "[%d,%d] set to 1 (%d out of %d)", beg, end - 1, changed,
                     outof);
-
-                for (j = i; j < last + 1; j++) {
-                  stable[j] = unstable[j];
-                  eliminated[j] = 1;
+                for (i = beg; i < end && i < n; i++) {
+                  stable[i] = unstable[i];
+                  eliminated[i] = 1;
                 }
-
                 copy_stable_to_unstable_and_write_dst_name();
               } else
-                msg(3, "[%d,%d] can neither be set to 1 (%d out of %d)", i,
-                    last, changed, outof);
+                msg(3, "[%d,%d] can neither be set to 1 (%d out of %d)", beg,
+                    end - 1, changed, outof);
             }
           }
-        }
-
-        i = last + 1;
-        skip = !delta && extend && !skip;
-        block -= skip;
-      };
+        } else
+          msg(3, "[%d,%d] stabilized to 0", beg, end - 1);
+      }
     }
-
-    if (delta > 1) reversed = (reversed << 1) | (delta & 1u);
     if (!delta) break;
   }
-  /* stable[15] = 0; */
 
   copy_stable_to_unstable_and_write_dst_name();
 
@@ -599,7 +559,7 @@ int main(int argc, char **argv) {
   free(bad);
   free(stable);
   free(unstable);
-  free(fixed);
+  /* free(fixed); */
   free(eliminated);
   free(cmd);
   aiger_reset(src);
