@@ -276,7 +276,7 @@ static int write_and_run_unstable_i(const char *cmd, int i) {
 }
 
 int main(int argc, char **argv) {
-  int i, changed, delta, reversed, extend, split, block, beg, end, expected,
+  int i, n, changed, delta, reversed, extend, split, block, beg, end, expected,
       res, outof;
   const char *src_name, *err;
   char *cmd;
@@ -341,7 +341,6 @@ int main(int argc, char **argv) {
     justice[i] = 1;
   for (i = 0; i < src->num_fairness; i++)
     fairness[i] = 1;
-  memset(eliminated, 0, src->maxvar + 1);
 
   copy_stable_to_unstable_and_write_dst_name();
 
@@ -356,86 +355,93 @@ int main(int argc, char **argv) {
 
   msg(1, "using temporary file '%s'", tmp_name);
 
-  int n = src->maxvar + 1;
-  for (delta = n, reversed = 0;;
-       reversed = (reversed << 1) | (delta & 1), delta >>= 1) {
-    for (int shorter = 0; shorter < 2 - !delta; shorter++) {
-      for (block = 0, beg = 0, end = 0; beg < n; block++, beg = end) {
-        for (i = 1; i < beg; i++)
-          unstable[i] = stable[i];
-        extend = !!(block & -block & reversed);
-        split = !(delta | extend);
-        block += split;
-        end = beg + delta + extend + split;
-        msg(2, "block %d, beg %d, end %d, n %d", block, beg, end, n);
-        if (extend == shorter || eliminated[beg] == 2 ||
-            (block % 2 == 1 && eliminated[beg - 1] == 2) ||
-            (block % 2 == 0 && delta < n && eliminated[end] == 2))
-          continue;
-        changed = 0;
-        outof = end - beg;
-        for (i = beg; i < end; i++) {
-          if (stable[i]) /* replace '1' by '0' as well */ {
-            unstable[i] = 0;
-            changed++;
-          } else
-            unstable[i] = 0; /* always favor 'zero' */
-        }
-        if (changed) {
-          for (i = end; i < n; i++)
-            unstable[i] = stable[i];
-          res = write_and_run_unstable(cmd);
-          if (res == expected) {
-            msg(1, "[%d,%d] set to 0 (%d out of %d)", beg, end - 1, changed,
-                outof);
-            for (i = beg; i < end; i++) {
-              stable[i] = unstable[i];
-              eliminated[i] = 2;
-            }
-            copy_stable_to_unstable_and_write_dst_name();
-          } else /* try setting to 'one' */
-          {
-            msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", beg, end - 1,
-                changed, outof);
-            for (i = 1; i < beg; i++)
-              unstable[i] = stable[i];
-            if (eliminated[beg] == 1 ||
-                (block % 2 == 1 && eliminated[beg - 1] == 1) ||
-                (block % 2 == 0 && delta < n && eliminated[end] == 1))
-              continue;
-            changed = 0;
-            for (i = beg; i < end; i++) {
-              if (stable[i]) {
-                if (stable[i] > 1) {
-                  unstable[i] = 1;
-                  changed++;
-                } else
-                  unstable[i] = 1;
-              } else
-                unstable[i] = 0; /* always favor '0' */
-            }
-            if (changed) {
-              for (i = end; i < n; i++)
-                unstable[i] = stable[i];
-              res = write_and_run_unstable(cmd);
-              if (res == expected) {
-                msg(1, "[%d,%d] set to 1 (%d out of %d)", beg, end - 1, changed,
-                    outof);
-                for (i = beg; i < end && i < n; i++) {
-                  stable[i] = unstable[i];
-                  eliminated[i] = 1;
-                }
-                copy_stable_to_unstable_and_write_dst_name();
-              } else
-                msg(3, "[%d,%d] can neither be set to 1 (%d out of %d)", beg,
-                    end - 1, changed, outof);
-            }
-          }
-        } else
-          msg(3, "[%d,%d] stabilized to 0", beg, end - 1);
-      }
+  n = src->maxvar + 1;
+  for (unsigned round = 1; round < 3; ++round) {
+    memset(eliminated, 0, src->maxvar + 1);
+    msg(2, "round %d", round);
+    for (unsigned i = 0; i < n; ++i) {
+      msg(3, "stable %d: %d", i, stable[i]);
     }
-    if (!delta) break;
+    for (delta = n, reversed = 0;;
+         reversed = (reversed << 1) | (delta & 1), delta >>= 1) {
+      for (int shorter = 0; shorter < 2 - !delta; shorter++) {
+        for (block = 0, beg = 0, end = 0; beg < n; block++, beg = end) {
+          for (i = 1; i < beg; i++)
+            unstable[i] = stable[i];
+          extend = !!(block & -block & reversed);
+          split = !(delta | extend);
+          block += split;
+          end = beg + delta + extend + split;
+          msg(2, "block %d, beg %d, end %d, n %d", block, beg, end, n);
+          if (extend == shorter || (eliminated[beg] & 1) ||
+              (block % 2 == 1 && eliminated[beg - 1] == (round << 1 | 1)) ||
+              (block % 2 == 0 && delta < n && eliminated[end] == (round << 1 | 1)))
+            continue;
+          changed = 0;
+          outof = end - beg;
+          for (i = beg; i < end; i++) {
+            if (stable[i]) /* replace '1' by '0' as well */ {
+              unstable[i] = 0;
+              changed++;
+            } else
+              unstable[i] = 0; /* always favor 'zero' */
+          }
+          if (changed) {
+            for (i = end; i < n; i++)
+              unstable[i] = stable[i];
+            res = write_and_run_unstable(cmd);
+            if (res == expected) {
+              msg(1, "[%d,%d] set to 0 (%d out of %d)", beg, end - 1, changed,
+                  outof);
+              for (i = beg; i < end; i++) {
+                stable[i] = unstable[i];
+                eliminated[i] = round << 1 | 1;
+              }
+              copy_stable_to_unstable_and_write_dst_name();
+            } else /* try setting to 'one' */
+            {
+              msg(3, "[%d,%d] can not be set to 0 (%d out of %d)", beg, end - 1,
+                  changed, outof);
+              for (i = 1; i < beg; i++)
+                unstable[i] = stable[i];
+              if (eliminated[beg] ||
+                  (block % 2 == 1 && eliminated[beg - 1] == (round << 1)) ||
+                  (block % 2 == 0 && delta < n && eliminated[end] == (round << 1)))
+                continue;
+              changed = 0;
+              for (i = beg; i < end; i++) {
+                if (stable[i]) {
+                  if (stable[i] > 1) {
+                    unstable[i] = 1;
+                    changed++;
+                  } else
+                    unstable[i] = 1;
+                } else
+                  unstable[i] = 0; /* always favor '0' */
+              }
+              if (changed) {
+                for (i = end; i < n; i++)
+                  unstable[i] = stable[i];
+                res = write_and_run_unstable(cmd);
+                if (res == expected) {
+                  msg(1, "[%d,%d] set to 1 (%d out of %d)", beg, end - 1,
+                      changed, outof);
+                  for (i = beg; i < end && i < n; i++) {
+                    stable[i] = unstable[i];
+                    eliminated[i] = round << 1 | 0;
+                  }
+                  copy_stable_to_unstable_and_write_dst_name();
+                } else
+                  msg(3, "[%d,%d] can neither be set to 1 (%d out of %d)", beg,
+                      end - 1, changed, outof);
+              }
+            }
+          } else
+            msg(3, "[%d,%d] stabilized to 0", beg, end - 1);
+        }
+      }
+      if (!delta) break;
+    }
   }
 
   copy_stable_to_unstable_and_write_dst_name();
