@@ -1,6 +1,10 @@
+## Version 1.10.1
+
+  - Fixed bug when delta debugging justice
+
 ## Version 1.10.0
 
-  - Added option fuzzing
+  - Added option fuzzing and delta debugging
 
 ## Version 1.9.19
 
