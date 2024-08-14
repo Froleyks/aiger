@@ -29,6 +29,7 @@ IN THE SOFTWARE.
   "  -h     prints this command line option summary\n"                         \
   "  -v     increases verbose level (default 0, max 3)\n"                      \
   "  -r     reencode and remove holes even if <dst> is in ASCII format\n"      \
+  "  -o     remove options\n"                                                  \
   "  <src>  source file in AIGER format\n"                                     \
   "  <dst>  destination file in AIGER format\n"                                \
   "  <run>  executable\n"                                                      \
@@ -83,6 +84,7 @@ static char *constraints;
 static char *justice;
 static char *fairness;
 static int verbose;
+static int removeopts;
 static int reencode;
 static int runs;
 static char **options;
@@ -221,8 +223,8 @@ static void write_unstable(const char *name) {
 
   for (i = 0; i < nopts; i++)
     if (options[i]) {
-      sprintf (comment, "--%s=%d", options[i], values[i]);
-      aiger_add_comment (dst, comment);
+      sprintf(comment, "--%s=%d", options[i], values[i]);
+      aiger_add_comment(dst, comment);
     }
 
   assert(!aiger_check(dst));
@@ -302,6 +304,8 @@ int main(int argc, char **argv) {
       verbose++;
     else if (!src_name && !strcmp(argv[i], "-r"))
       reencode = 1;
+    else if (!src_name && !strcmp(argv[i], "-o"))
+      removeopts = 1;
     else if (src_name && dst_name && cmd)
       cmd = strapp(strapp(cmd, " "), argv[i]);
     else if (dst_name)
@@ -355,14 +359,13 @@ int main(int argc, char **argv) {
 
   nopts = szopts = 0;
   {
-    int  val, szbuf = 32, nbuf = 0;
+    int val, szbuf = 32, nbuf = 0;
     char *buffer = 0, **p, *c;
-    options = malloc (nopts * sizeof *options);
-    values = malloc (nopts * sizeof *values);
-    buffer = malloc (szbuf);
+    options = malloc(nopts * sizeof *options);
+    values = malloc(nopts * sizeof *values);
+    buffer = malloc(szbuf);
     for (p = src->comments; (c = *p); p++) {
-      if (*c++ != '-' || *c++ != '-')
-        continue;
+      if (*c++ != '-' || *c++ != '-') continue;
       nbuf = 0;
       while (isalnum(*c) || *c == '-' || *c == '_') {
         if (nbuf + 1 >= szbuf)
@@ -370,8 +373,7 @@ int main(int argc, char **argv) {
         buffer[nbuf++] = *c++;
         buffer[nbuf] = 0;
       }
-      if (*c++ != '=')
-        continue;
+      if (*c++ != '=') continue;
       val = 0;
       while (isdigit(*c)) {
         val = 10 * val + (*c++ - '0');
@@ -386,7 +388,7 @@ int main(int argc, char **argv) {
       values[nopts] = val;
       nopts++;
     }
-    free (buffer);
+    free(buffer);
   }
 
   copy_stable_to_unstable_and_write_dst_name();
@@ -422,7 +424,8 @@ int main(int argc, char **argv) {
           msg(2, "block %d, beg %d, end %d, n %d", block, beg, end, n);
           if (extend == shorter || (eliminated[beg] & 1) ||
               (block % 2 == 1 && eliminated[beg - 1] == (round << 1 | 1)) ||
-              (block % 2 == 0 && delta < n && eliminated[end] == (round << 1 | 1)))
+              (block % 2 == 0 && delta < n &&
+               eliminated[end] == (round << 1 | 1)))
             continue;
           changed = 0;
           outof = end - beg;
@@ -453,7 +456,8 @@ int main(int argc, char **argv) {
                 unstable[i] = stable[i];
               if (eliminated[beg] ||
                   (block % 2 == 1 && eliminated[beg - 1] == (round << 1)) ||
-                  (block % 2 == 0 && delta < n && eliminated[end] == (round << 1)))
+                  (block % 2 == 0 && delta < n &&
+                   eliminated[end] == (round << 1)))
                 continue;
               changed = 0;
               for (i = beg; i < end; i++) {
@@ -588,108 +592,89 @@ int main(int argc, char **argv) {
     copy_stable_to_unstable_and_write_dst_name();
   }
 
-  if (nopts)
-    {
-      int i, val, removed, reduced, reductions, once, c, n, shift, delta;
-      char * opt;
+  if (nopts) {
+    int i, val, removed, reduced, reductions, once, c, n, shift, delta;
+    char *opt;
 
-      n = 0;
-      for (i = 0; i < nopts; i++)
-        if (options[i])
-          n++;
+    n = 0;
+    for (i = 0; i < nopts; i++)
+      if (options[i]) n++;
 
-      removed = 0;
-      if (removeopts)
-        {
-          c = 0;
-          for (i = 0; i < nopts; i++)
-            {
-              if (!options[i])
-                continue;
-
-              c++;
-              msg(2, "removed %d completed %d/%d\r", removed, c, n);
-
-              opt = options[i];
-              options[i] = 0;
-              res = write_and_run_unstable (cmd);
-              if (res != expected)
-                {
-                  removed++;
-                  free (opt);
-                }
-              else
-                options[i] = opt;
-            }
-
-          if (removed)
-            {
-              msg (2, "removed %d options", removed);
-            }
-          copy_stable_to_unstable_and_write_dst_name ();
-        }
-
+    removed = 0;
+    if (removeopts) {
       c = 0;
-      n -= removed;
-      reductions = reduced = 0;
+      for (i = 0; i < nopts; i++) {
+        if (!options[i]) continue;
 
-      for (i = 0; i < nopts; i++)
-        {
-          if (!options[i])
-            continue;
-          msg(2, "reduced %d completed %d/%d in %d reductions\r", reduced, c, n,
-              reductions);
-          shift = 1;
-          once = 0;
-          for (;;)
-            {
-              val = values[i];
-              delta = val / (1 << shift);
-              if (!delta) break;
-              assert (abs (delta) < abs (val));
-              values[i] -= delta;
-              res = write_and_run_unstable (cmd);
-              if (res != expected)
-                {
-                  values[i] = val;
-                  shift++;
-                }
-              else
-                {
-                  once = 1;
-                  reductions++;
-                }
-            }
+        c++;
+        msg(2, "removed %d completed %d/%d\r", removed, c, n);
 
-          for (;;)
-            {
-              val = values[i];
-              if (val > 0) values[i]--;
-              else if (val < 0) values[i]++;
-              else break;
-              res = write_and_run_unstable (cmd);
-              msg(1, "got %d expected %d", res, expected);
-              if (res != expected)
-                {
-                  values[i] = val;
-                  break;
-                }
-              else
-                {
-                  once = 1;
-                  reductions++;
-                }
-            }
+        opt = options[i];
+        options[i] = 0;
+        res = write_and_run_unstable(cmd);
+        if (res != expected) {
+          removed++;
+          free(opt);
+        } else
+          options[i] = opt;
+      }
 
-            if (once)
-              reduced++;
+      if (removed) { msg(2, "removed %d options", removed); }
+      copy_stable_to_unstable_and_write_dst_name();
+    }
+
+    c = 0;
+    n -= removed;
+    reductions = reduced = 0;
+
+    for (i = 0; i < nopts; i++) {
+      if (!options[i]) continue;
+      msg(2, "reduced %d completed %d/%d in %d reductions\r", reduced, c, n,
+          reductions);
+      shift = 1;
+      once = 0;
+      for (;;) {
+        val = values[i];
+        delta = val / (1 << shift);
+        if (!delta) break;
+        assert(abs(delta) < abs(val));
+        values[i] -= delta;
+        res = write_and_run_unstable(cmd);
+        if (res != expected) {
+          values[i] = val;
+          shift++;
+        } else {
+          once = 1;
+          reductions++;
         }
+      }
 
-      copy_stable_to_unstable_and_write_dst_name ();
+      for (;;) {
+        val = values[i];
+        if (val > 0)
+          values[i]--;
+        else if (val < 0)
+          values[i]++;
+        else
+          break;
+        res = write_and_run_unstable(cmd);
+        msg(1, "got %d expected %d", res, expected);
+        if (res != expected) {
+          values[i] = val;
+          break;
+        } else {
+          once = 1;
+          reductions++;
+        }
+      }
 
-      if (reduced)
-        msg (1, "reduced %d option values in %d reductions",
-              reduced, reductions);
+      if (once) reduced++;
+    }
+
+    copy_stable_to_unstable_and_write_dst_name();
+
+    if (reduced)
+      msg(1, "reduced %d option values in %d reductions", reduced, reductions);
   }
 
   changed = 0;
@@ -715,8 +700,8 @@ int main(int argc, char **argv) {
   free(fixed);
   free(eliminated);
   free(cmd);
-  free (options);
-  free (values);
+  free(options);
+  free(values);
   aiger_reset(src);
   unlink(tmp_name);
 
